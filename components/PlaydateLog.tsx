@@ -15,6 +15,7 @@ type Props = {
   dogs: Dog[];
   selectedId: string | null;
   revision: number;
+  yours?: boolean;
   onSelectDog: (id: string | null) => void;
 };
 
@@ -38,6 +39,7 @@ export function PlaydateLog({
   dogs,
   selectedId,
   revision,
+  yours = false,
   onSelectDog,
 }: Props) {
   const [view, setView] = useState<LogView>("all");
@@ -54,8 +56,15 @@ export function PlaydateLog({
     >
       <div className="shrink-0 border-b-2 border-[var(--ink)] px-2 py-1.5">
         <h2 className="font-pixel text-[0.5rem] leading-relaxed">
-          {selected ? `${selected.name}'s log` : "Playdate log"}
+          {selected
+            ? yours
+              ? `${selected.name}'s day`
+              : `${selected.name}'s log`
+            : "Playdate log"}
         </h2>
+        {selected && yours && (
+          <p className="text-xs text-[var(--ink)]/75">Your pup</p>
+        )}
       </div>
       <div className="shrink-0 border-b-2 border-[var(--ink)] px-2 py-1.5">
         <div className="flex items-center gap-2">

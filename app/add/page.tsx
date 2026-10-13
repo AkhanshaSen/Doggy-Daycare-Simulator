@@ -8,6 +8,7 @@ import { MuteToggle } from "@/components/MuteToggle";
 import { OptionPicker } from "@/components/OptionPicker";
 import { getAudio } from "@/lib/audio";
 import { getDogRepository } from "@/lib/localDogRepository";
+import { rememberDropoff } from "@/lib/player";
 import { assertCleanText } from "@/lib/profanity";
 import { canAddDog, remainingDogsToday } from "@/lib/rateLimit";
 import { useDogStore } from "@/lib/store";
@@ -89,6 +90,7 @@ export default function AddDogPage() {
     setFormError(null);
     try {
       const dog = await getDogRepository().addDog(input);
+      rememberDropoff(dog.ownerName, dog.id);
       setLastAddedId(dog.id);
       getAudio().unlock();
       getAudio().play("success");

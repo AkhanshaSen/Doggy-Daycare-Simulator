@@ -9,6 +9,13 @@ import { YardControls } from "@/components/YardControls";
 import type { ClockSpeed } from "@/lib/clock";
 import { getDogRepository } from "@/lib/localDogRepository";
 import type { ParkThemeId } from "@/lib/parkThemes";
+import {
+  clearPendingDropoff,
+  isYourDog,
+  latestDogId,
+  readPlayer,
+  type PlayerProfile,
+} from "@/lib/player";
 import { readSettings, writeSettings, type YardSettings } from "@/lib/settings";
 import { useDogStore } from "@/lib/store";
 import type { Dog } from "@/lib/types";
@@ -23,12 +30,25 @@ export default function YardPage() {
   const [logRevision, setLogRevision] = useState(0);
   const [visibleCount, setVisibleCount] = useState<number | null>(null);
   const [settings, setSettings] = useState<YardSettings | null>(null);
+  const [player, setPlayer] = useState<PlayerProfile | null>(null);
   const [clockSeek, setClockSeek] = useState(0);
   const scrubAtRef = useRef(0);
+  const logDefaulted = useRef(false);
 
   useEffect(() => {
     setSettings(readSettings());
+    setPlayer(readPlayer());
   }, []);
+
+  useEffect(() => {
+    if (logDefaulted.current || !player || yardDogs.length === 0) return;
+    logDefaulted.current = true;
+    if (selectedId) return;
+    const preferred = latestDogId(player);
+    if (preferred && yardDogs.some((dog) => dog.id === preferred)) {
+      setSelectedId(preferred);
+    }
+  }, [player, yardDogs, selectedId]);
 
   const saveSettings = (next: YardSettings) => {
     setSettings(next);
@@ -103,6 +123,8 @@ export default function YardPage() {
                   return next;
                 });
               }}
+              player={player}
+              onDropoffFinished={() => setPlayer(clearPendingDropoff())}
               onSelectDog={(dog) => setSelectedId(dog.id)}
               onOpenProfile={setProfileDog}
               onInteraction={() => setLogRevision((value) => value + 1)}
@@ -115,6 +137,7 @@ export default function YardPage() {
             dogs={yardDogs}
             selectedId={selectedId}
             revision={logRevision}
+            yours={Boolean(selectedId && isYourDog(selectedId, player))}
             onSelectDog={setSelectedId}
           />
         )}

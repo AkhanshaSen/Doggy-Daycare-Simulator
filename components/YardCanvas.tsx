@@ -32,6 +32,12 @@ import {
 } from "@/lib/interactions";
 import type { ParkThemeId } from "@/lib/parkThemes";
 import {
+  isYourDog,
+  visitorLines,
+  type PlayerProfile,
+  type VisitorKind,
+} from "@/lib/player";
+import {
   appearanceForOwner,
   displayOwnerName,
   type OwnerAppearance,
@@ -119,6 +125,8 @@ type Props = {
   clockSpeed?: ClockSpeed;
   clockSeek?: number;
   onClockMinutes?: (minutes: number) => void;
+  player?: PlayerProfile | null;
+  onDropoffFinished?: () => void;
 };
 
 const SCALE = 2;
@@ -192,6 +200,20 @@ type Dialogue = {
   name: string;
   lines: string[];
   index: number;
+  resume: OwnerPhase;
+};
+
+type YouAvatar = {
+  name: string;
+  appearance: OwnerAppearance;
+  x: number;
+  y: number;
+  frame: number;
+  frameTimer: number;
+  flip: boolean;
+  mode: "entering" | "idle" | "collecting" | "leaving" | "returnGate";
+  dogId: string | null;
+  awayMs: number;
 };
 
 function ownerDialogue(ownerName: string, dog: Dog): string[] {
@@ -271,6 +293,8 @@ export function YardCanvas({
   clockSpeed = "normal",
   clockSeek = 0,
   onClockMinutes,
+  player = null,
+  onDropoffFinished,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const actorsRef = useRef<Actor[]>([]);
@@ -284,6 +308,10 @@ export function YardCanvas({
   const fixtureActiveRef = useRef<Map<string, number>>(new Map());
   const pendingFixtureRef = useRef<Fixture | null>(null);
   const ownerRef = useRef<OwnerVisit | null>(null);
+  const youRef = useRef<YouAvatar | null>(null);
+  const playerRef = useRef<PlayerProfile | null>(player);
+  const onDropoffRef = useRef(onDropoffFinished);
+  const handledDropoffRef = useRef<string | null>(null);
   const nextOwnerAtRef = useRef(0);
   const countAtRef = useRef(0);
   const onVisibleRef = useRef(onVisibleCountChange);
@@ -312,6 +340,8 @@ export function YardCanvas({
   themeRef.current = themeId;
   onClockRef.current = onClockMinutes;
   clockPropRef.current = { minutes: clockMinutes, seek: clockSeek };
+  playerRef.current = player;
+  onDropoffRef.current = onDropoffFinished;
 
   dogsRef.current = dogs;
   onSelectRef.current = onSelectDog;
@@ -326,12 +356,33 @@ export function YardCanvas({
       visiting.rush ||
       (visiting.phase !== "approach" &&
         visiting.phase !== "greeting" &&
+        visiting.phase !== "returningTogether" &&
         visiting.phase !== "talking")
     ) {
       return;
     }
     const dog = actorsRef.current.find((actor) => actor.dog.id === visiting.dogId);
     if (!dog) return;
+    const profile = playerRef.current;
+    const dropoff = visiting.phase === "returningTogether";
+    const yourDog = profile
+      ? [...profile.dogIds]
+          .reverse()
+          .map((id) => actorsRef.current.find((actor) => actor.dog.id === id)?.dog)
+          .find((pup) => pup && pup.id !== dog.dog.id)
+      : undefined;
+    const lines =
+      profile?.ownerName
+        ? visitorLines({
+            playerName: profile.ownerName,
+            visitorName: visiting.ownerName,
+            theirDog: dog.dog.name,
+            theirFavorite: dog.dog.favoriteThing,
+            yourDog: yourDog?.name,
+            yourFavorite: yourDog?.favoriteThing,
+            kind: (dropoff ? "dropoff" : "pickup") satisfies VisitorKind,
+          })
+        : ownerDialogue(visiting.ownerName, dog.dog);
     getAudio().unlock();
     getAudio().play("click");
     visiting.phase = "talking";
@@ -340,8 +391,9 @@ export function YardCanvas({
     setOwnerTalkOffer(null);
     setDialogue({
       name: visiting.ownerName,
-      lines: ownerDialogue(visiting.ownerName, dog.dog),
+      lines,
       index: 0,
+      resume: dropoff ? "returningTogether" : "greeting",
     });
     setLiveText(`${visiting.ownerName} says hello`);
   }, []);
@@ -649,7 +701,12 @@ export function YardCanvas({
             }
             if (goesHomeAtNight(actor.dog.id)) {
               actor.nightRole = "home";
-              if (!actor.partnerWalk) homeQueueRef.current.push(actor.dog.id);
+              if (
+                !actor.partnerWalk &&
+                !isYourDog(actor.dog.id, playerRef.current)
+              ) {
+                homeQueueRef.current.push(actor.dog.id);
+              }
             } else {
               actor.nightRole = "overnight";
               actor.fixtureTarget = null;
@@ -666,7 +723,9 @@ export function YardCanvas({
           const returning: string[] = [];
           for (const actor of actorsRef.current) {
             if (actor.nightRole === "home" && actor.place === "away") {
-              returning.push(actor.dog.id);
+              if (!isYourDog(actor.dog.id, playerRef.current)) {
+                returning.push(actor.dog.id);
+              }
             } else if (actor.place === "yard") {
               actor.nightRole = null;
               actor.buildingTarget = false;
@@ -794,6 +853,7 @@ export function YardCanvas({
             actor.place === "yard" &&
             !actor.partnerWalk &&
             ownerRef.current?.dogId !== actor.dog.id &&
+            !isYourDog(actor.dog.id, playerRef.current) &&
             !homeQueueRef.current.includes(actor.dog.id)
           ) {
             homeQueueRef.current.push(actor.dog.id);
@@ -808,7 +868,7 @@ export function YardCanvas({
       ) {
         const id = homeQueueRef.current[0]!;
         const queued = actors.find((actor) => actor.dog.id === id);
-        if (!queued || queued.place === "away") {
+        if (!queued || queued.place === "away" || isYourDog(id, playerRef.current)) {
           homeQueueRef.current.shift();
         } else if (!queued.partnerWalk) {
           homeQueueRef.current.shift();
@@ -865,6 +925,7 @@ export function YardCanvas({
             actor.nightRole === "home" &&
             actor.place === "away" &&
             ownerRef.current?.dogId !== actor.dog.id &&
+            !isYourDog(actor.dog.id, playerRef.current) &&
             !morningQueueRef.current.includes(actor.dog.id)
           ) {
             morningQueueRef.current.push(actor.dog.id);
@@ -889,7 +950,10 @@ export function YardCanvas({
         now >= nextOwnerAtRef.current
       ) {
         const candidates = actors.filter(
-          (actor) => actor.place === "yard" && !actor.partnerWalk,
+          (actor) =>
+            actor.place === "yard" &&
+            !actor.partnerWalk &&
+            !isYourDog(actor.dog.id, playerRef.current),
         );
         if (candidates.length > 0 && nextOwnerAtRef.current !== 0) {
           const dog = candidates[Math.floor(Math.random() * candidates.length)]!;
@@ -1025,6 +1089,7 @@ export function YardCanvas({
         if (
           isParkClosed(phaseRef.current) &&
           !owner.rush &&
+          dog?.partnerWalk !== "return" &&
           owner.phase !== "leavingTogether" &&
           owner.phase !== "returningTogether" &&
           owner.phase !== "collecting" &&
@@ -1073,13 +1138,228 @@ export function YardCanvas({
         }
       }
 
+      const profile = playerRef.current;
+      const gate = {
+        x: Math.min(maxX - 4, Math.max(minX, door.x - 72)),
+        y: Math.min(maxY, Math.max(minY, door.y + 36)),
+      };
+      if (!profile?.ownerName) {
+        youRef.current = null;
+      } else {
+        if (!youRef.current) {
+          youRef.current = {
+            name: profile.ownerName,
+            appearance: appearanceForOwner(profile.ownerName, "you"),
+            x: gate.x,
+            y: gate.y,
+            frame: 0,
+            frameTimer: 0,
+            flip: false,
+            mode: "idle",
+            dogId: null,
+            awayMs: 0,
+          };
+        }
+        const you = youRef.current;
+        you.name = profile.ownerName;
+        you.appearance = appearanceForOwner(profile.ownerName, "you");
+        you.frameTimer += dt;
+        if (you.frameTimer > 0.22) {
+          you.frame = (you.frame + 1) % 2;
+          you.frameTimer = 0;
+        }
+        const moveYou = (
+          goal: { x: number; y: number },
+          speed: number,
+          arrive: number,
+        ) => {
+          const dx = goal.x - you.x;
+          const dy = goal.y - you.y;
+          const len = Math.hypot(dx, dy) || 1;
+          if (len > arrive) {
+            you.x += (dx / len) * speed * dt;
+            you.y += (dy / len) * speed * dt;
+            you.flip = dx < 0;
+            return false;
+          }
+          return true;
+        };
+        const followYou = (walker: Actor) => {
+          const side = you.flip ? 18 : -12;
+          const slotX = you.x + side;
+          const slotY = you.y + 8;
+          const dx = slotX - walker.x;
+          const dy = slotY - walker.y;
+          const len = Math.hypot(dx, dy) || 1;
+          if (len > 4) {
+            const speed = len > 40 ? 240 : 120;
+            const stepDist = Math.min(len, speed * dt);
+            walker.x += (dx / len) * stepDist;
+            walker.y += (dy / len) * stepDist;
+          }
+          walker.flip = you.flip;
+          walker.frame = you.frame;
+          walker.vx = 0;
+          walker.vy = 0;
+        };
+        const leashDog = (walker: Actor, kind: "return" | "exit") => {
+          walker.place = "yard";
+          walker.placeUntil = 0;
+          walker.buildingTarget = false;
+          walker.fixtureTarget = null;
+          walker.partnerId = null;
+          walker.interactUntil = 0;
+          walker.targetId = null;
+          walker.busyUntil = 0;
+          walker.partnerWalk = kind;
+          walker.x = you.x + 18;
+          walker.y = you.y + 8;
+          setPresence(walker.dog.id, { place: "yard" });
+        };
+        const startEnter = (walker: Actor) => {
+          you.mode = "entering";
+          you.dogId = walker.dog.id;
+          you.x = -18;
+          you.y = exitPoint.y;
+          you.flip = false;
+          leashDog(walker, "return");
+        };
+        const walking =
+          you.mode === "entering" ||
+          you.mode === "collecting" ||
+          you.mode === "leaving" ||
+          you.mode === "returnGate";
+        const pending = profile.pendingDropoffId;
+        if (!walking) {
+          if (
+            pending &&
+            handledDropoffRef.current !== pending &&
+            ownerRef.current?.dogId !== pending
+          ) {
+            const pup = actors.find((actor) => actor.dog.id === pending);
+            if (pup && pup.place !== "away") {
+              handledDropoffRef.current = pending;
+              startEnter(pup);
+            }
+          } else if (!isParkClosed(phaseRef.current)) {
+            const comingHome = actors.find(
+              (actor) =>
+                isYourDog(actor.dog.id, profile) &&
+                actor.nightRole === "home" &&
+                actor.place === "away" &&
+                ownerRef.current?.dogId !== actor.dog.id,
+            );
+            if (comingHome) {
+              comingHome.nightRole = null;
+              startEnter(comingHome);
+            }
+          } else {
+            const going = actors.find(
+              (actor) =>
+                isYourDog(actor.dog.id, profile) &&
+                actor.nightRole === "home" &&
+                actor.place !== "away" &&
+                !actor.partnerWalk &&
+                ownerRef.current?.dogId !== actor.dog.id,
+            );
+            if (going) {
+              you.dogId = going.dog.id;
+              you.awayMs = 18 * 60 * 60 * 1000;
+              if (going.place === "indoor") {
+                you.mode = "collecting";
+              } else {
+                you.mode = "leaving";
+                leashDog(going, "exit");
+              }
+            }
+          }
+        }
+        const led = you.dogId
+          ? actors.find((actor) => actor.dog.id === you.dogId)
+          : undefined;
+        if (you.mode === "entering" && led) {
+          followYou(led);
+          if (moveYou(releasePoint, 72, 18)) {
+            led.partnerWalk = null;
+            led.place = "yard";
+            led.placeUntil = 0;
+            led.nightRole = null;
+            led.x = releasePoint.x;
+            led.y = releasePoint.y;
+            setPresence(led.dog.id, { place: "yard" });
+            changeHappiness(led, 4);
+            const entry = recordInteraction({
+              dogAId: led.dog.id,
+              dogAName: led.dog.name,
+              dogBId: "__owner__",
+              dogBName: you.name,
+              kind: "return",
+            });
+            if (entry) onInteractionRef.current?.(entry);
+            bubblesRef.current = [
+              ...bubblesRef.current.filter((bubble) => bubble.until > now),
+              {
+                id: `you-drop-${led.dog.id}-${now}`,
+                dogId: led.dog.id,
+                text: "i'm here!",
+                until: now + 2200,
+              },
+            ].slice(-8);
+            if (profile.pendingDropoffId === led.dog.id) {
+              onDropoffRef.current?.();
+            }
+            you.mode = "idle";
+            you.dogId = null;
+          }
+        } else if (you.mode === "collecting" && led) {
+          if (moveYou(door, 78, 22)) {
+            you.mode = "leaving";
+            leashDog(led, "exit");
+            led.x = door.x - SPRITE_W / 2;
+            led.y = door.y;
+          }
+        } else if (you.mode === "leaving" && led) {
+          followYou(led);
+          moveYou(exitPoint, 72, 6);
+          if (you.x < -36 && led.x < -SPRITE_W) {
+            const awayMs = you.awayMs || 18 * 60 * 60 * 1000;
+            led.place = "away";
+            led.placeUntil = now + awayMs;
+            led.nightRole = "home";
+            led.partnerWalk = null;
+            led.buildingTarget = false;
+            led.fixtureTarget = null;
+            setPresence(led.dog.id, {
+              place: "away",
+              until: new Date(Date.now() + awayMs).toISOString(),
+            });
+            const entry = recordInteraction({
+              dogAId: led.dog.id,
+              dogAName: led.dog.name,
+              dogBId: "__owner__",
+              dogBName: you.name,
+              kind: "pickup",
+            });
+            if (entry) onInteractionRef.current?.(entry);
+            you.mode = "returnGate";
+            you.dogId = null;
+          }
+        } else if (you.mode === "returnGate") {
+          if (moveYou(gate, 78, 8)) you.mode = "idle";
+        } else if (you.mode === "idle") {
+          const pace = Math.sin(now / 900) * 14;
+          moveYou({ x: gate.x + pace, y: gate.y }, 28, 2);
+        }
+      }
+
       const visitingOffer = ownerRef.current;
       const showOwnerTalkOffer =
         visitingOffer &&
         !visitingOffer.rush &&
         !talkingRef.current &&
         (visitingOffer.phase === "approach" ||
-          visitingOffer.phase === "greeting");
+          visitingOffer.phase === "greeting" ||
+          visitingOffer.phase === "returningTogether");
       if (showOwnerTalkOffer && !ownerTalkOfferActiveRef.current) {
         ownerTalkOfferActiveRef.current = true;
         setOwnerTalkOffer({ ownerName: visitingOffer.ownerName });
@@ -1115,7 +1395,13 @@ export function YardCanvas({
         for (const actor of actors) {
           if (actor.place !== "yard") continue;
           if (actor.partnerWalk) {
-            actor.frame = ownerRef.current?.frame ?? actor.frame;
+            const leader =
+              ownerRef.current?.dogId === actor.dog.id
+                ? ownerRef.current
+                : youRef.current?.dogId === actor.dog.id
+                  ? youRef.current
+                  : ownerRef.current;
+            actor.frame = leader?.frame ?? actor.frame;
             continue;
           }
           const roundedBefore = Math.round(actor.happiness);
@@ -1465,6 +1751,23 @@ export function YardCanvas({
           leashed.y + 28,
         );
       }
+      const youDraw = youRef.current;
+      const yourLeash = actors.find(
+        (actor) =>
+          actor.partnerWalk &&
+          youDraw &&
+          actor.dog.id === youDraw.dogId &&
+          actor.place === "yard",
+      );
+      if (youDraw && yourLeash) {
+        drawLeash(
+          ctx,
+          youDraw.x + 16,
+          youDraw.y + 28,
+          yourLeash.x + SPRITE_W / 2,
+          yourLeash.y + 28,
+        );
+      }
 
       const sorted = [...actors]
         .filter((actor) => actor.place === "yard")
@@ -1552,6 +1855,29 @@ export function YardCanvas({
           ctx.fillStyle = GB.flowerYellow;
           ctx.fillRect(ownerDraw.x + 28, ownerDraw.y - 28, 8, 8);
         }
+      }
+
+      if (youDraw && (youDraw.mode !== "leaving" || youDraw.x > -80)) {
+        drawOwner(
+          ctx,
+          youDraw.x,
+          youDraw.y,
+          youDraw.frame,
+          youDraw.flip,
+          2,
+          youDraw.appearance,
+        );
+        ctx.font = "10px sans-serif";
+        ctx.textAlign = "center";
+        const youLabel = "You";
+        const youWidth = ctx.measureText(youLabel).width + 8;
+        const youLabelY = youDraw.y - 16;
+        ctx.fillStyle = GB.menu;
+        ctx.fillRect(youDraw.x + 16 - youWidth / 2, youLabelY, youWidth, 14);
+        ctx.strokeStyle = GB.ink;
+        ctx.strokeRect(youDraw.x + 16 - youWidth / 2, youLabelY, youWidth, 14);
+        ctx.fillStyle = GB.ink;
+        ctx.fillText(youLabel, youDraw.x + 16, youLabelY + 10);
       }
 
       drawNightOverlay(ctx, w, h, tint);
@@ -1754,8 +2080,10 @@ export function YardCanvas({
                 talkingRef.current = false;
                 const owner = ownerRef.current;
                 if (owner) {
-                  owner.phase = "greeting";
-                  owner.until = performance.now() + 1200;
+                  owner.phase = dialogue.resume;
+                  if (dialogue.resume === "greeting") {
+                    owner.until = performance.now() + 1200;
+                  }
                 }
                 setDialogue(null);
               } else {
