@@ -1,8 +1,14 @@
+import type { NightTint } from "./clock";
 import { GB } from "./gbPalette";
 import {
   appearanceForOwner,
   type OwnerAppearance,
 } from "./ownerAppearance";
+import {
+  sceneryFor,
+  type ParkThemeId,
+  type SceneryColors,
+} from "./parkThemes";
 import type { AccessoryId, BreedId, Mood } from "./types";
 import {
   getBuildingRect,
@@ -12,6 +18,16 @@ import {
 } from "./yardLayout";
 
 export const SPRITE_SIZE = 32;
+
+let activeScenery: SceneryColors = sceneryFor("classic");
+
+export function setParkTheme(id: ParkThemeId): void {
+  activeScenery = sceneryFor(id);
+}
+
+export function getActiveScenery(): SceneryColors {
+  return activeScenery;
+}
 
 type Palette = {
   body: string;
@@ -77,6 +93,48 @@ const PALETTES: Record<string, Palette> = {
     outline: "#8B5A3C",
     ear: "#E0A070",
     snout: "#FFE8D6",
+  },
+  sable: {
+    body: "#C47830",
+    belly: "#F0D0A0",
+    outline: "#3D2410",
+    ear: "#8A4018",
+    snout: "#F0D0A0",
+  },
+  slate: {
+    body: "#607888",
+    belly: "#C8D8E0",
+    outline: "#1A2830",
+    ear: "#405868",
+    snout: "#D8E8F0",
+  },
+  rust: {
+    body: "#A04028",
+    belly: "#E0A080",
+    outline: "#3A140C",
+    ear: "#702010",
+    snout: "#F0C0A0",
+  },
+  tan: {
+    body: "#D0A060",
+    belly: "#F0E0C0",
+    outline: "#5C4010",
+    ear: "#A07840",
+    snout: "#F8E8D0",
+  },
+  black: {
+    body: "#2A2A2A",
+    belly: "#5A5A5A",
+    outline: "#0A0A0A",
+    ear: "#1A1A1A",
+    snout: "#3A3A3A",
+  },
+  blue: {
+    body: "#6A88B0",
+    belly: "#D0D8E8",
+    outline: "#203048",
+    ear: "#486080",
+    snout: "#E8EEF8",
   },
 };
 
@@ -177,6 +235,75 @@ function breedPixels(breed: BreedId, frame: number): Pixel[] {
         [15, 18 + (1 - legShift), "leg"],
         [17, 18 + legShift, "leg"], [18, 18 + legShift, "leg"],
       ];
+    case "husky":
+      return [
+        [8, 14], [9, 14], [10, 14], [11, 14], [12, 14], [13, 14], [14, 14], [15, 14], [16, 14], [17, 14], [18, 14],
+        [7, 15], [8, 15], [9, 15, "belly"], [10, 15, "belly"], [11, 15, "belly"], [12, 15], [13, 15], [14, 15], [15, 15], [16, 15], [17, 15], [18, 15], [19, 15],
+        [8, 16], [9, 16, "belly"], [10, 16, "belly"], [11, 16], [12, 16], [13, 16], [14, 16], [15, 16], [16, 16], [17, 16], [18, 16],
+        [9, 17], [10, 17], [11, 17], [12, 17], [13, 17], [14, 17], [15, 17], [16, 17], [17, 17],
+        [16, 8], [17, 8], [19, 8], [20, 8],
+        [15, 9, "ear"], [16, 9], [17, 9], [18, 9], [19, 9], [20, 9], [21, 9, "ear"],
+        [16, 10], [17, 10], [18, 10, "snout"], [19, 10], [20, 10], [21, 10],
+        [16, 11], [17, 11, "eye"], [18, 11], [19, 11, "eye"], [20, 11, "snout"], [21, 11], [22, 11, "nose"],
+        [17, 12], [18, 12, "snout"], [19, 12, "snout"], [20, 12, "snout"], [21, 12],
+        [18, 13], [19, 13], [20, 13],
+        [5, 13], [6, 12], [7, 13], [6, 14], [7, 15],
+        [10, 18 + legShift, "leg"], [11, 18 + legShift, "leg"],
+        [13, 18 + (1 - legShift), "leg"], [14, 18 + (1 - legShift), "leg"],
+        [16, 18 + legShift, "leg"], [17, 18 + legShift, "leg"],
+      ];
+    case "pug":
+      return [
+        [11, 14], [12, 14], [13, 14], [14, 14], [15, 14], [16, 14], [17, 14], [18, 14], [19, 14],
+        [10, 15], [11, 15], [12, 15, "belly"], [13, 15, "belly"], [14, 15, "belly"], [15, 15], [16, 15], [17, 15], [18, 15], [19, 15], [20, 15],
+        [10, 16], [11, 16, "belly"], [12, 16, "belly"], [13, 16], [14, 16], [15, 16], [16, 16], [17, 16], [18, 16], [19, 16], [20, 16],
+        [11, 17], [12, 17], [13, 17], [14, 17], [15, 17], [16, 17], [17, 17], [18, 17], [19, 17],
+        [16, 8], [17, 8], [18, 8], [19, 8], [20, 8],
+        [15, 9], [16, 9], [17, 9], [18, 9, "snout"], [19, 9], [20, 9], [21, 9],
+        [15, 10], [16, 10, "eye"], [17, 10], [18, 10, "snout"], [19, 10], [20, 10, "eye"], [21, 10],
+        [16, 11], [17, 11, "snout"], [18, 11, "nose"], [19, 11, "snout"], [20, 11],
+        [17, 12, "snout"], [18, 12, "snout"], [19, 12, "snout"],
+        [15, 7, "ear"], [20, 7, "ear"],
+        [9, 15], [8, 16], [8, 17],
+        [12, 18 + legShift, "leg"], [13, 18 + legShift, "leg"],
+        [15, 18 + (1 - legShift), "leg"],
+        [17, 18 + legShift, "leg"], [18, 18 + legShift, "leg"],
+      ];
+    case "poodle":
+      return [
+        [10, 13], [11, 13], [12, 13], [13, 13], [14, 13], [15, 13], [16, 13], [17, 13], [18, 13],
+        [9, 14], [10, 14], [11, 14], [12, 14], [13, 14, "belly"], [14, 14, "belly"], [15, 14], [16, 14], [17, 14], [18, 14], [19, 14],
+        [9, 15], [10, 15], [11, 15, "belly"], [12, 15, "belly"], [13, 15], [14, 15], [15, 15], [16, 15], [17, 15], [18, 15], [19, 15],
+        [10, 16], [11, 16], [12, 16], [13, 16], [14, 16], [15, 16], [16, 16], [17, 16], [18, 16],
+        [11, 17], [12, 17], [13, 17], [14, 17], [15, 17], [16, 17], [17, 17],
+        [14, 6], [15, 6], [16, 6], [17, 6],
+        [13, 7], [14, 7], [15, 7], [16, 7], [17, 7], [18, 7],
+        [12, 8], [13, 8], [14, 8], [15, 8], [16, 8], [17, 8], [18, 8], [19, 8],
+        [13, 9], [14, 9, "eye"], [15, 9], [16, 9], [17, 9, "eye"], [18, 9],
+        [14, 10], [15, 10, "snout"], [16, 10, "nose"], [17, 10, "snout"],
+        [15, 11], [16, 11],
+        [11, 8, "ear"], [12, 9, "ear"], [19, 9, "ear"], [20, 8, "ear"],
+        [8, 14], [7, 13], [7, 15],
+        [12, 18 + legShift, "leg"], [13, 18 + legShift, "leg"],
+        [16, 18 + (1 - legShift), "leg"], [17, 18 + (1 - legShift), "leg"],
+      ];
+    case "shiba":
+      return [
+        [9, 14], [10, 14], [11, 14], [12, 14], [13, 14], [14, 14], [15, 14], [16, 14], [17, 14], [18, 14],
+        [8, 15], [9, 15], [10, 15, "belly"], [11, 15, "belly"], [12, 15, "belly"], [13, 15], [14, 15], [15, 15], [16, 15], [17, 15], [18, 15], [19, 15],
+        [9, 16], [10, 16, "belly"], [11, 16], [12, 16], [13, 16], [14, 16], [15, 16], [16, 16], [17, 16], [18, 16],
+        [10, 17], [11, 17], [12, 17], [13, 17], [14, 17], [15, 17], [16, 17], [17, 17],
+        [17, 7, "ear"], [18, 8, "ear"], [21, 7, "ear"], [20, 8, "ear"],
+        [17, 9], [18, 9], [19, 9], [20, 9], [21, 9],
+        [16, 10], [17, 10], [18, 10], [19, 10, "snout"], [20, 10], [21, 10], [22, 10],
+        [17, 11], [18, 11, "eye"], [19, 11], [20, 11, "eye"], [21, 11, "snout"], [22, 11, "nose"],
+        [18, 12], [19, 12, "snout"], [20, 12, "snout"], [21, 12],
+        [19, 13], [20, 13],
+        [7, 13], [8, 12], [8, 14], [9, 13],
+        [11, 18 + legShift, "leg"], [12, 18 + legShift, "leg"],
+        [14, 18 + (1 - legShift), "leg"], [15, 18 + (1 - legShift), "leg"],
+        [17, 18 + legShift, "leg"], [18, 18 + legShift, "leg"],
+      ];
   }
 }
 
@@ -255,10 +382,10 @@ export function drawDog(
   } = options;
 
   const palette = getPalette(colorId);
+  const body = breedPixels(breedId, frame);
   const pixels = [
-    ...breedPixels(breedId, frame),
+    ...body,
     ...accessoryPixels(accessoryId).map((p) => {
-      // mark accessory pixels specially
       if (accessoryId === "bow") return [p[0], p[1], "bow" as const] as const;
       if (accessoryId === "clip") return [p[0], p[1], "clip" as const] as const;
       return p;
@@ -275,6 +402,24 @@ export function drawDog(
     ctx.scale(-1, 1);
   }
 
+  const occupied = new Set(pixels.map((pixel) => `${pixel[0]},${pixel[1]}`));
+  ctx.fillStyle = palette.outline;
+  for (const pixel of body) {
+    const px = pixel[0];
+    const py = pixel[1];
+    for (const [dx, dy] of [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ] as const) {
+      const nx = px + dx;
+      const ny = py + dy;
+      if (occupied.has(`${nx},${ny}`)) continue;
+      ctx.fillRect(nx * scale, ny * scale, scale, scale);
+    }
+  }
+
   for (const pixel of pixels) {
     const px = pixel[0];
     const py = pixel[1];
@@ -289,12 +434,11 @@ export function drawDog(
       color = resolveColor(kind as Pixel[2], palette, accessoryId);
     }
 
-    // Mood indicator pixels from moodPixels don't have kind — color by mood
     const isMoodPixel =
       mood &&
       px >= 22 &&
       py <= 6 &&
-      !breedPixels(breedId, frame).some((b) => b[0] === px && b[1] === py);
+      !body.some((b) => b[0] === px && b[1] === py);
 
     if (isMoodPixel) {
       color =
@@ -307,16 +451,10 @@ export function drawDog(
 
     ctx.fillStyle = color;
     ctx.fillRect(px * scale, py * scale, scale, scale);
-  }
-
-  // outline pass — light outline on body edge using outline color sparsely
-    ctx.fillStyle = palette.outline;
-  ctx.globalAlpha = 0.15;
-  ctx.fillRect(10 * scale, 20 * scale, 12 * scale, scale);
-  ctx.globalAlpha = 1;
-  if (frame % 2 === 1) {
-    ctx.fillStyle = "rgba(255,255,255,0.45)";
-    ctx.fillRect(14 * scale, 14 * scale, scale, scale);
+    if (kind === "eye" && scale >= 2) {
+      ctx.fillStyle = "#F8F8F8";
+      ctx.fillRect(px * scale, py * scale, 1, 1);
+    }
   }
 
   ctx.restore();
@@ -341,17 +479,18 @@ function drawTree(
   variant: 0 | 1,
 ): void {
   const top = variant === 1 ? y - 4 : y;
+  const scene = activeScenery;
   ctx.fillStyle = GB.ink;
   ctx.fillRect(x + 6, y + 16, 6, 12);
-  ctx.fillStyle = GB.bark;
+  ctx.fillStyle = scene.bark;
   ctx.fillRect(x + 7, y + 17, 4, 10);
   ctx.fillStyle = GB.ink;
   ctx.fillRect(x - 1, top + 3, 20, 16);
   ctx.fillRect(x + 2, top - 1, 14, 8);
-  ctx.fillStyle = GB.grassShade;
+  ctx.fillStyle = scene.tree;
   ctx.fillRect(x, top + 4, 18, 14);
   ctx.fillRect(x + 3, top, 12, 8);
-  ctx.fillStyle = GB.grass;
+  ctx.fillStyle = scene.grass;
   ctx.fillRect(x + 4, top + 2, 5, 3);
 }
 
@@ -361,10 +500,15 @@ function drawFlower(
   y: number,
   variant: number,
 ): void {
-  ctx.fillStyle = GB.grassShade;
+  const scene = activeScenery;
+  ctx.fillStyle = scene.grassShade;
   ctx.fillRect(x + 2, y + 3, 2, 5);
   const petal =
-    variant === 0 ? GB.flowerPink : variant === 1 ? GB.flowerYellow : GB.flowerWhite;
+    variant === 0
+      ? scene.flowerPink
+      : variant === 1
+        ? scene.flowerYellow
+        : scene.flowerWhite;
   ctx.fillStyle = GB.ink;
   ctx.fillRect(x - 1, y - 1, 8, 6);
   ctx.fillStyle = petal;
@@ -372,7 +516,7 @@ function drawFlower(
   ctx.fillRect(x + 4, y + 1, 2, 2);
   ctx.fillRect(x + 2, y, 2, 2);
   ctx.fillRect(x + 2, y + 2, 2, 2);
-  ctx.fillStyle = variant === 2 ? GB.flowerYellow : GB.flowerWhite;
+  ctx.fillStyle = variant === 2 ? scene.flowerYellow : scene.flowerWhite;
   ctx.fillRect(x + 2, y + 1, 2, 2);
 }
 
@@ -382,11 +526,12 @@ function drawFlowerBed(
   y: number,
   width: number,
 ): void {
+  const scene = activeScenery;
   ctx.fillStyle = GB.ink;
   ctx.fillRect(x, y + 4, width, 12);
-  ctx.fillStyle = GB.soil;
+  ctx.fillStyle = scene.dirtDark;
   ctx.fillRect(x + 1, y + 5, width - 2, 10);
-  ctx.fillStyle = GB.dirt;
+  ctx.fillStyle = scene.dirt;
   ctx.fillRect(x + 2, y + 6, width - 4, 6);
   const count = Math.max(1, Math.floor((width - 8) / 8));
   for (let i = 0; i < count; i++) {
@@ -399,17 +544,18 @@ function drawFence(
   area: Rect,
   gapCenterX: number,
 ): void {
+  const scene = activeScenery;
   const rail = (x1: number, x2: number, y: number) => {
     if (x2 - x1 < 4) return;
     ctx.fillStyle = GB.ink;
     ctx.fillRect(x1, y, x2 - x1, 3);
-    ctx.fillStyle = GB.wood;
+    ctx.fillStyle = scene.wood;
     ctx.fillRect(x1, y, x2 - x1, 2);
   };
   const post = (x: number, y: number) => {
     ctx.fillStyle = GB.ink;
     ctx.fillRect(x, y, 4, 16);
-    ctx.fillStyle = GB.bark;
+    ctx.fillStyle = scene.bark;
     ctx.fillRect(x + 1, y + 1, 2, 14);
   };
   const gap = 40;
@@ -435,7 +581,7 @@ function drawFence(
   ctx.fillStyle = GB.ink;
   ctx.fillRect(left, top + 4, 3, bottom - top);
   ctx.fillRect(right - 3, top + 4, 3, bottom - top - 2);
-  ctx.fillStyle = GB.wood;
+  ctx.fillStyle = scene.wood;
   ctx.fillRect(left + 1, top + 6, 1, bottom - top - 8);
   ctx.fillRect(right - 2, top + 6, 1, bottom - top - 8);
 }
@@ -447,7 +593,7 @@ function drawSignpost(
 ): void {
   ctx.fillStyle = GB.ink;
   ctx.fillRect(x + 6, y + 10, 4, 16);
-  ctx.fillStyle = GB.bark;
+  ctx.fillStyle = activeScenery.bark;
   ctx.fillRect(x + 7, y + 11, 2, 14);
   ctx.fillStyle = GB.ink;
   ctx.fillRect(x, y, 28, 12);
@@ -465,11 +611,12 @@ export function drawGrassBackground(
   height: number,
   topSafe = 110,
 ): void {
-  ctx.fillStyle = GB.sky;
+  const scene = activeScenery;
+  ctx.fillStyle = scene.sky;
   ctx.fillRect(0, 0, width, 36);
   const band = 12;
   for (let y = 28; y < height; y += band) {
-    ctx.fillStyle = Math.floor((y - 28) / band) % 2 === 0 ? GB.grass : GB.grassDark;
+    ctx.fillStyle = Math.floor((y - 28) / band) % 2 === 0 ? scene.grass : scene.grassDark;
     ctx.fillRect(0, y, width, band);
   }
   drawParkScenery(ctx, width, height, topSafe);
@@ -515,7 +662,7 @@ export function drawDirtPath(
     const y = fromY + (toY - fromY) * t;
     ctx.fillStyle = GB.ink;
     ctx.fillRect(x - 7, y - 1, 14, 8);
-    ctx.fillStyle = i % 2 === 0 ? GB.dirt : GB.dirtDark;
+    ctx.fillStyle = i % 2 === 0 ? activeScenery.dirt : activeScenery.dirtDark;
     ctx.fillRect(x - 6, y, 12, 6);
   }
 }
@@ -527,6 +674,7 @@ export function drawDaycareBuilding(
   width: number,
   height: number,
   doorOpen: boolean,
+  night = false,
 ): void {
   ctx.fillStyle = GB.ink;
   ctx.fillRect(x + 6, y - 2, width - 12, 14);
@@ -539,7 +687,7 @@ export function drawDaycareBuilding(
   ctx.fillStyle = GB.ink;
   ctx.fillRect(x + 8, y + 16, 20, 16);
   ctx.fillRect(x + width - 28, y + 16, 20, 16);
-  ctx.fillStyle = GB.window;
+  ctx.fillStyle = night ? "#f8e060" : GB.window;
   ctx.fillRect(x + 10, y + 18, 16, 12);
   ctx.fillRect(x + width - 26, y + 18, 16, 12);
   ctx.fillStyle = GB.ink;
@@ -559,6 +707,35 @@ export function drawDaycareBuilding(
   ctx.font = "10px sans-serif";
   ctx.textAlign = "center";
   ctx.fillText("Daycare", x + width / 2, y + 8);
+}
+
+export function drawNightOverlay(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  tint: NightTint,
+): void {
+  if (tint.alpha <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = tint.alpha;
+  ctx.fillStyle = tint.color;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
+/** Window glow drawn after the night tint so the daycare stays lit. */
+export function drawWindowLights(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+): void {
+  ctx.fillStyle = "#f8e060";
+  ctx.fillRect(x + 12, y + 20, 12, 8);
+  ctx.fillRect(x + width - 24, y + 20, 12, 8);
+  ctx.fillStyle = "#fff8c0";
+  ctx.fillRect(x + 13, y + 21, 4, 3);
+  ctx.fillRect(x + width - 23, y + 21, 4, 3);
 }
 
 export function drawOwner(
@@ -635,7 +812,7 @@ function propShadow(
   y: number,
   w: number,
 ): void {
-  ctx.fillStyle = GB.grassShade;
+  ctx.fillStyle = activeScenery.grassShade;
   ctx.fillRect(x + 2, y, w, 2);
 }
 

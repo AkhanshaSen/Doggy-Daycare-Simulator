@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  filterLog,
   getAllInteractions,
   getLogForDog,
+  gossipExchange,
   INTERACTION_STORAGE_KEY,
   interactionLine,
   pairKey,
@@ -155,5 +157,50 @@ describe("dog interactions", () => {
       storage,
     );
     expect(personalLine(returned!, "a")).toBe("Dropped off by Maya");
+  });
+
+  it("logs gossip about a human from each dog's perspective", () => {
+    const script = gossipExchange("Pepper", "Ava", "Snowball", "Elle", 0);
+    const entry = recordInteraction(
+      {
+        dogAId: "a",
+        dogAName: "Pepper",
+        dogBId: "b",
+        dogBName: "Snowball",
+        kind: "gossip",
+        detail: script.detail,
+        lineA: script.lineA,
+        lineB: script.lineB,
+      },
+      storage,
+      new Date("2026-10-13T16:00:00.000Z"),
+    );
+    expect(script.detail).toContain("Ava");
+    expect(interactionLine(entry!)).toBe(script.detail);
+    expect(personalLine(entry!, "a")).toBe(script.lineA);
+    expect(personalLine(entry!, "b")).toBe(script.lineB);
+  });
+
+  it("filters the log by playdates, owners, and fixtures", () => {
+    const samples = [
+      { dogBId: "b", dogBName: "Noodle", kind: "sniff" as const },
+      { dogBId: "c", dogBName: "Snowball", kind: "gossip" as const, detail: "talked" },
+      { dogBId: "__ball__", dogBName: "the ball", kind: "ball" as const },
+      { dogBId: "__owner__", dogBName: "Ava", kind: "pickup" as const },
+    ];
+    for (const sample of samples) {
+      recordInteraction(
+        { dogAId: "a", dogAName: "Pepper", ...sample },
+        storage,
+        new Date("2026-10-13T16:10:00.000Z"),
+      );
+    }
+    const all = getAllInteractions(storage);
+    expect(filterLog(all, "playdates").map((entry) => entry.kind)).toEqual(["sniff"]);
+    expect(filterLog(all, "owners").map((entry) => entry.kind).sort()).toEqual([
+      "gossip",
+      "pickup",
+    ]);
+    expect(filterLog(all, "fixtures").map((entry) => entry.kind)).toEqual(["ball"]);
   });
 });

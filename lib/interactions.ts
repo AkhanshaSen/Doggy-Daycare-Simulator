@@ -1,3 +1,5 @@
+import { gossipBetween } from "./gossip";
+
 export type InteractionKind =
   | "sniff"
   | "play"
@@ -10,7 +12,8 @@ export type InteractionKind =
   | "splash"
   | "agility"
   | "pickup"
-  | "return";
+  | "return"
+  | "gossip";
 
 export const BALL_ID = "__ball__";
 export const FOOD_ID = "__food__";
@@ -27,7 +30,12 @@ export type YardInteraction = {
   dogBName: string;
   kind: InteractionKind;
   at: string;
+  detail?: string;
+  lineA?: string;
+  lineB?: string;
 };
+
+export type LogView = "all" | "playdates" | "owners" | "fixtures";
 
 export const INTERACTION_STORAGE_KEY = "doggy-daycare-interactions";
 const MAX_ENTRIES = 200;
@@ -46,6 +54,7 @@ const KIND_VERBS: Record<InteractionKind, string> = {
   agility: "jumped",
   pickup: "picked up",
   return: "dropped off",
+  gossip: "talked with",
 };
 
 export function happinessForKind(kind: InteractionKind): number {
@@ -66,6 +75,8 @@ export function happinessForKind(kind: InteractionKind): number {
       return 10;
     case "agility":
       return 10;
+    case "gossip":
+      return 5;
     default:
       return 3;
   }
@@ -89,6 +100,7 @@ export function pickInteractionKind(
 }
 
 export function interactionLine(entry: YardInteraction): string {
+  if (entry.detail) return entry.detail;
   if (entry.kind === "pickup") {
     return `${entry.dogBName} picked up ${entry.dogAName}`;
   }
@@ -102,6 +114,15 @@ export function interactionLine(entry: YardInteraction): string {
 }
 
 export function personalLine(entry: YardInteraction, dogId: string): string {
+  if (entry.kind === "gossip") {
+    const isA = entry.dogAId === dogId;
+    if (isA && entry.lineA) return entry.lineA;
+    if (!isA && entry.lineB) return entry.lineB;
+    const other = isA ? entry.dogBName : entry.dogAName;
+    return isA
+      ? `Told ${other} about my human`
+      : `Heard ${entry.dogAName} talk about their human`;
+  }
   if (entry.kind === "ball") return "Played with the ball";
   if (entry.kind === "eat") return "Ate from the food bowl";
   if (entry.kind === "chew") return "Chewed a bone";
@@ -150,7 +171,84 @@ export function bubbleLines(
       return ["Time to go!", "See you soon!"];
     case "return":
       return ["Welcome back!", "Let's play!"];
+    case "gossip":
+      return ["My human is the best!", "Tell me more!"];
   }
+}
+
+export function gossipExchange(
+  aName: string,
+  aOwner: string,
+  bName: string,
+  bOwner: string,
+  roll: number = Math.random(),
+): { detail: string; lines: [string, string]; lineA: string; lineB: string } {
+  const script = gossipBetween(
+    {
+      id: aName,
+      name: aName,
+      owner: aOwner,
+      mood: "happy",
+      personality: "social",
+      favoriteThing: "treats",
+      age: 3,
+    },
+    {
+      id: bName,
+      name: bName,
+      owner: bOwner,
+      mood: "happy",
+      personality: "social",
+      favoriteThing: "walks",
+      age: 4,
+    },
+    roll,
+  );
+  return {
+    detail: script.detail,
+    lineA: script.lineA,
+    lineB: script.lineB,
+    lines: script.bubbles,
+  };
+}
+
+const PLAYDATE_KINDS = new Set<InteractionKind>([
+  "sniff",
+  "play",
+  "greet",
+  "chase",
+  "nap",
+]);
+
+const FIXTURE_KINDS = new Set<InteractionKind>([
+  "ball",
+  "eat",
+  "chew",
+  "splash",
+  "agility",
+]);
+
+export function filterLog(
+  entries: YardInteraction[],
+  view: LogView,
+): YardInteraction[] {
+  if (view === "all") return entries;
+  if (view === "owners") {
+    return entries.filter(
+      (entry) =>
+        entry.kind === "gossip" ||
+        entry.kind === "pickup" ||
+        entry.kind === "return",
+    );
+  }
+  if (view === "fixtures") {
+    return entries.filter(
+      (entry) => FIXTURE_KINDS.has(entry.kind) || entry.dogBId === BED_ID,
+    );
+  }
+  return entries.filter(
+    (entry) => PLAYDATE_KINDS.has(entry.kind) && entry.dogBId !== BED_ID,
+  );
 }
 
 function readAll(storage: Storage | null): YardInteraction[] {
@@ -174,7 +272,10 @@ function isInteraction(value: unknown): value is YardInteraction {
     typeof e.dogAId === "string" &&
     typeof e.dogBId === "string" &&
     typeof e.kind === "string" &&
-    typeof e.at === "string"
+    typeof e.at === "string" &&
+    (e.detail === undefined || typeof e.detail === "string") &&
+    (e.lineA === undefined || typeof e.lineA === "string") &&
+    (e.lineB === undefined || typeof e.lineB === "string")
   );
 }
 
@@ -237,6 +338,9 @@ export function recordInteraction(
     dogBName: input.dogBName,
     kind: input.kind,
     at,
+    detail: input.detail,
+    lineA: input.lineA,
+    lineB: input.lineB,
   };
   writeAll(storage, [entry, ...existing]);
   return entry;

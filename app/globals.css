@@ -113,6 +113,34 @@ canvas {
   box-shadow: 4px 4px 0 var(--ink);
 }
 
+.pixel-chip {
+  font-family: var(--font-pixel), monospace;
+  font-size: 0.38rem;
+  line-height: 1.3;
+  padding: 0.35rem 0.15rem;
+  background: var(--card);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  cursor: pointer;
+  text-align: center;
+}
+
+.pixel-chip-active {
+  background: var(--accent-orange);
+  color: #e0f8d0;
+}
+
+.pixel-chip:hover,
+.pixel-chip:focus-visible {
+  background: #c4d4a8;
+  outline: none;
+}
+
+.pixel-chip-active:hover,
+.pixel-chip-active:focus-visible {
+  background: var(--accent-orange-hover);
+}
+
 .pixel-input {
   width: 100%;
   padding: 0.5rem 0.65rem;

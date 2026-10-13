@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DogProfileModal } from "@/components/DogProfileModal";
 import { PlaydateLog } from "@/components/PlaydateLog";
 import { SiteHeader } from "@/components/SiteHeader";
 import { YardCanvas } from "@/components/YardCanvas";
+import { YardControls } from "@/components/YardControls";
+import type { ClockSpeed } from "@/lib/clock";
 import { getDogRepository } from "@/lib/localDogRepository";
+import type { ParkThemeId } from "@/lib/parkThemes";
+import { readSettings, writeSettings, type YardSettings } from "@/lib/settings";
 import { useDogStore } from "@/lib/store";
 import type { Dog } from "@/lib/types";
 
@@ -18,6 +22,18 @@ export default function YardPage() {
   const [profileDog, setProfileDog] = useState<Dog | null>(null);
   const [logRevision, setLogRevision] = useState(0);
   const [visibleCount, setVisibleCount] = useState<number | null>(null);
+  const [settings, setSettings] = useState<YardSettings | null>(null);
+  const [clockSeek, setClockSeek] = useState(0);
+  const scrubAtRef = useRef(0);
+
+  useEffect(() => {
+    setSettings(readSettings());
+  }, []);
+
+  const saveSettings = (next: YardSettings) => {
+    setSettings(next);
+    writeSettings(next);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -45,8 +61,22 @@ export default function YardPage() {
       <SiteHeader
         yardCount={loading ? undefined : (visibleCount ?? yardDogs.length)}
       />
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <div className="relative min-h-[420px] flex-1">
+      {settings && (
+        <YardControls
+          minutes={settings.minutes}
+          speed={settings.speed}
+          themeId={settings.themeId}
+          onMinutes={(minutes) => {
+            scrubAtRef.current = performance.now();
+            setClockSeek((value) => value + 1);
+            saveSettings({ ...settings, minutes });
+          }}
+          onSpeed={(speed: ClockSpeed) => saveSettings({ ...settings, speed })}
+          onTheme={(themeId: ParkThemeId) => saveSettings({ ...settings, themeId })}
+        />
+      )}
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:items-stretch">
+        <div className="relative min-h-[min(340px,42dvh)] flex-1 lg:min-h-[420px]">
           {loading && (
             <p className="font-pixel absolute inset-0 z-10 flex items-center justify-center text-[0.55rem] text-[var(--ink)]">
               Opening the yard…
@@ -57,9 +87,22 @@ export default function YardPage() {
               {error}
             </p>
           )}
-          {!loading && !error && (
+          {!loading && !error && settings && (
             <YardCanvas
               dogs={yardDogs}
+              themeId={settings.themeId}
+              clockMinutes={settings.minutes}
+              clockSpeed={settings.speed}
+              clockSeek={clockSeek}
+              onClockMinutes={(minutes) => {
+                if (performance.now() - scrubAtRef.current < 500) return;
+                setSettings((current) => {
+                  if (!current) return current;
+                  const next = { ...current, minutes };
+                  writeSettings(next);
+                  return next;
+                });
+              }}
               onSelectDog={(dog) => setSelectedId(dog.id)}
               onOpenProfile={setProfileDog}
               onInteraction={() => setLogRevision((value) => value + 1)}
@@ -72,12 +115,12 @@ export default function YardPage() {
             dogs={yardDogs}
             selectedId={selectedId}
             revision={logRevision}
-            onClearSelection={() => setSelectedId(null)}
+            onSelectDog={setSelectedId}
           />
         )}
       </div>
       <p className="relative z-10 px-4 pb-3 text-center text-xs text-[var(--ink)]/70">
-        Tap an owner to talk · Double-tap a dog for their card · Tap bowls, toys, the pool, or the hurdle
+        Slide the clock to dusk — pups go home or sleep inside · Tap an owner to talk · Double-tap a dog for their card
       </p>
       <DogProfileModal dog={profileDog} onClose={() => setProfileDog(null)} />
     </main>

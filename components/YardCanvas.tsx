@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getAudio } from "@/lib/audio";
+import {
+  advanceClock,
+  goesHomeAtNight,
+  isParkClosed,
+  nightTint,
+  phaseFor,
+  type ClockSpeed,
+  type DayPhase,
+} from "@/lib/clock";
 import { GB } from "@/lib/gbPalette";
+import { gossipBetween, gossipDogFrom } from "@/lib/gossip";
 import {
   AGILITY_ID,
   BALL_ID,
@@ -20,6 +30,7 @@ import {
   type InteractionKind,
   type YardInteraction,
 } from "@/lib/interactions";
+import type { ParkThemeId } from "@/lib/parkThemes";
 import {
   appearanceForOwner,
   displayOwnerName,
@@ -38,8 +49,11 @@ import {
   drawHappinessBar,
   drawKiddiePool,
   drawLeash,
+  drawNightOverlay,
   drawOwner,
   drawWaterBowl,
+  drawWindowLights,
+  setParkTheme,
   SPRITE_SIZE,
 } from "@/lib/sprites";
 import { getPersonality, type Dog } from "@/lib/types";
@@ -83,6 +97,7 @@ type Actor = {
   buildingTarget: boolean;
   nextEnterAt: number;
   partnerWalk: "exit" | "return" | null;
+  nightRole: "home" | "overnight" | null;
 };
 
 type Bubble = {
@@ -99,6 +114,11 @@ type Props = {
   onOpenProfile?: (dog: Dog) => void;
   onInteraction?: (entry: YardInteraction) => void;
   onVisibleCountChange?: (count: number) => void;
+  themeId?: ParkThemeId;
+  clockMinutes?: number;
+  clockSpeed?: ClockSpeed;
+  clockSeek?: number;
+  onClockMinutes?: (minutes: number) => void;
 };
 
 const SCALE = 2;
@@ -142,6 +162,7 @@ type OwnerVisit = {
   flip: boolean;
   until: number;
   awayMs: number;
+  rush: boolean;
 };
 
 function makeOwnerVisit(
@@ -163,6 +184,7 @@ function makeOwnerVisit(
     flip: false,
     until,
     awayMs: 0,
+    rush: false,
   };
 }
 
@@ -244,6 +266,11 @@ export function YardCanvas({
   onOpenProfile,
   onInteraction,
   onVisibleCountChange,
+  themeId = "classic",
+  clockMinutes = 10 * 60,
+  clockSpeed = "normal",
+  clockSeek = 0,
+  onClockMinutes,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const actorsRef = useRef<Actor[]>([]);
@@ -265,12 +292,59 @@ export function YardCanvas({
   const [liveText, setLiveText] = useState("");
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
   const talkingRef = useRef(false);
+  const minutesRef = useRef(clockMinutes);
+  const speedRef = useRef(clockSpeed);
+  const seekSeenRef = useRef(clockSeek);
+  const clockPropRef = useRef({ minutes: clockMinutes, seek: clockSeek });
+  const themeRef = useRef(themeId);
+  const onClockRef = useRef(onClockMinutes);
+  const phaseRef = useRef<DayPhase>(phaseFor(clockMinutes));
+  const homeQueueRef = useRef<string[]>([]);
+  const morningQueueRef = useRef<string[]>([]);
+  const lastClockReportRef = useRef(0);
+  const nightShiftRef = useRef(false);
+  const [ownerTalkOffer, setOwnerTalkOffer] = useState<{
+    ownerName: string;
+  } | null>(null);
+  const ownerTalkOfferActiveRef = useRef(false);
+
+  speedRef.current = clockSpeed;
+  themeRef.current = themeId;
+  onClockRef.current = onClockMinutes;
+  clockPropRef.current = { minutes: clockMinutes, seek: clockSeek };
 
   dogsRef.current = dogs;
   onSelectRef.current = onSelectDog;
   onOpenProfileRef.current = onOpenProfile;
   onInteractionRef.current = onInteraction;
   onVisibleRef.current = onVisibleCountChange;
+
+  const beginOwnerTalk = useCallback(() => {
+    const visiting = ownerRef.current;
+    if (
+      !visiting ||
+      visiting.rush ||
+      (visiting.phase !== "approach" &&
+        visiting.phase !== "greeting" &&
+        visiting.phase !== "talking")
+    ) {
+      return;
+    }
+    const dog = actorsRef.current.find((actor) => actor.dog.id === visiting.dogId);
+    if (!dog) return;
+    getAudio().unlock();
+    getAudio().play("click");
+    visiting.phase = "talking";
+    talkingRef.current = true;
+    ownerTalkOfferActiveRef.current = false;
+    setOwnerTalkOffer(null);
+    setDialogue({
+      name: visiting.ownerName,
+      lines: ownerDialogue(visiting.ownerName, dog.dog),
+      index: 0,
+    });
+    setLiveText(`${visiting.ownerName} says hello`);
+  }, []);
 
   const syncActors = useCallback((width: number, height: number) => {
     const current = dogsRef.current;
@@ -288,6 +362,7 @@ export function YardCanvas({
           existing.nextEnterAt = performance.now() + Math.random() * 5000;
         }
         if (existing.partnerWalk === undefined) existing.partnerWalk = null;
+        if (existing.nightRole === undefined) existing.nightRole = null;
         next.push(existing);
       } else {
         const presence = getPresence(dog.id);
@@ -319,6 +394,7 @@ export function YardCanvas({
           buildingTarget: false,
           nextEnterAt: performance.now() + 12000 + Math.random() * 8000,
           partnerWalk: null,
+          nightRole: null,
         });
       }
     }
@@ -461,7 +537,17 @@ export function YardCanvas({
     };
 
     const beginMeeting = (a: Actor, b: Actor, now: number) => {
-      const kind = pickInteractionKind(a.dog.mood, b.dog.mood);
+      const gossipRoll = Math.random();
+      const kind: InteractionKind =
+        gossipRoll < 0.34 ? "gossip" : pickInteractionKind(a.dog.mood, b.dog.mood);
+      const script =
+        kind === "gossip"
+          ? gossipBetween(
+              gossipDogFrom(a.dog, displayOwnerName(a.dog.ownerName, a.dog.id)),
+              gossipDogFrom(b.dog, displayOwnerName(b.dog.ownerName, b.dog.id)),
+              gossipRoll / 0.34,
+            )
+          : null;
       const midX = (a.x + b.x) / 2;
       const midY = (a.y + b.y) / 2;
       a.x = midX - 34;
@@ -486,7 +572,9 @@ export function YardCanvas({
       );
       nextMeetingRef.current = now + GLOBAL_COOLDOWN_MS;
 
-      const [lineA, lineB] = bubbleLines(kind, a.dog.name, b.dog.name);
+      const [lineA, lineB] = script
+        ? script.bubbles
+        : bubbleLines(kind, a.dog.name, b.dog.name);
       const until = now + INTERACT_MS;
       bubblesRef.current = [
         ...bubblesRef.current.filter((bubble) => bubble.until > now),
@@ -501,6 +589,9 @@ export function YardCanvas({
         dogBId: b.dog.id,
         dogBName: b.dog.name,
         kind,
+        detail: script?.detail,
+        lineA: script?.lineA,
+        lineB: script?.lineB,
       });
       if (entry) {
         changeHappiness(a, happinessForKind(kind));
@@ -525,6 +616,18 @@ export function YardCanvas({
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
 
+      setParkTheme(themeRef.current);
+      if (seekSeenRef.current !== clockPropRef.current.seek) {
+        seekSeenRef.current = clockPropRef.current.seek;
+        minutesRef.current = clockPropRef.current.minutes;
+      }
+      minutesRef.current = advanceClock(minutesRef.current, dt, speedRef.current);
+      const phase = phaseFor(minutesRef.current);
+      if (now - lastClockReportRef.current > 250) {
+        lastClockReportRef.current = now;
+        onClockRef.current?.(minutesRef.current);
+      }
+
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
       const bounds = playBounds(w, h);
@@ -532,6 +635,46 @@ export function YardCanvas({
       const actors = actorsRef.current;
 
       syncActors(w, h);
+      if (phase !== phaseRef.current || (isParkClosed(phase) && !nightShiftRef.current)) {
+        const previous = phaseRef.current;
+        phaseRef.current = phase;
+        if (isParkClosed(phase) && (!isParkClosed(previous) || !nightShiftRef.current)) {
+          nightShiftRef.current = true;
+          homeQueueRef.current = [];
+          morningQueueRef.current = [];
+          for (const actor of actorsRef.current) {
+            if (actor.place === "away" || actor.partnerWalk === "exit") {
+              actor.nightRole = "home";
+              continue;
+            }
+            if (goesHomeAtNight(actor.dog.id)) {
+              actor.nightRole = "home";
+              if (!actor.partnerWalk) homeQueueRef.current.push(actor.dog.id);
+            } else {
+              actor.nightRole = "overnight";
+              actor.fixtureTarget = null;
+              actor.targetId = null;
+              actor.partnerId = null;
+              actor.interactUntil = 0;
+              if (actor.place !== "indoor") actor.buildingTarget = true;
+            }
+          }
+        }
+        if (isParkClosed(previous) && !isParkClosed(phase)) {
+          nightShiftRef.current = false;
+          homeQueueRef.current = [];
+          const returning: string[] = [];
+          for (const actor of actorsRef.current) {
+            if (actor.nightRole === "home" && actor.place === "away") {
+              returning.push(actor.dog.id);
+            } else if (actor.place === "yard") {
+              actor.nightRole = null;
+              actor.buildingTarget = false;
+            }
+          }
+          morningQueueRef.current = returning;
+        }
+      }
       const fixtures = layoutFixtures(w, h, LAYOUT_TOP);
       const pending = pendingFixtureRef.current;
       if (pending) {
@@ -610,14 +753,18 @@ export function YardCanvas({
       for (const actor of actors) {
         if (actor.partnerWalk) continue;
         if (actor.place === "indoor" && actor.placeUntil > 0 && now >= actor.placeUntil) {
-          if (looseCount() >= MAX_LOOSE) {
+          if (isParkClosed(phaseRef.current)) {
+            actor.placeUntil = now + 60000;
+          } else if (looseCount() >= MAX_LOOSE) {
             actor.placeUntil = now + 5000;
           } else {
             emerge(actor);
+            actor.nightRole = null;
           }
         }
         if (
           actor.place === "away" &&
+          actor.nightRole !== "home" &&
           actor.placeUntil > 0 &&
           now >= actor.placeUntil &&
           !ownerRef.current
@@ -640,7 +787,107 @@ export function YardCanvas({
         }
       }
 
-      if (!ownerRef.current && now >= nextOwnerAtRef.current) {
+      if (isParkClosed(phaseRef.current)) {
+        for (const actor of actors) {
+          if (
+            actor.nightRole === "home" &&
+            actor.place === "yard" &&
+            !actor.partnerWalk &&
+            ownerRef.current?.dogId !== actor.dog.id &&
+            !homeQueueRef.current.includes(actor.dog.id)
+          ) {
+            homeQueueRef.current.push(actor.dog.id);
+          }
+        }
+      }
+
+      if (
+        !ownerRef.current &&
+        isParkClosed(phaseRef.current) &&
+        homeQueueRef.current.length > 0
+      ) {
+        const id = homeQueueRef.current[0]!;
+        const queued = actors.find((actor) => actor.dog.id === id);
+        if (!queued || queued.place === "away") {
+          homeQueueRef.current.shift();
+        } else if (!queued.partnerWalk) {
+          homeQueueRef.current.shift();
+          const visit = makeOwnerVisit(
+            queued.dog,
+            queued.place === "indoor" ? "collecting" : "approach",
+            queued.place === "indoor" ? door.x - 8 : Math.max(8, queued.x - 20),
+            queued.place === "indoor" ? door.y : queued.y,
+          );
+          visit.rush = true;
+          visit.awayMs = 18 * 60 * 60 * 1000;
+          ownerRef.current = visit;
+        }
+      }
+
+      if (
+        !ownerRef.current &&
+        !isParkClosed(phaseRef.current) &&
+        morningQueueRef.current.length > 0
+      ) {
+        const id = morningQueueRef.current.shift()!;
+        const returning = actors.find(
+          (actor) => actor.dog.id === id && actor.place === "away",
+        );
+        if (returning) {
+          returning.nightRole = null;
+          const visit = makeOwnerVisit(
+            returning.dog,
+            "returningTogether",
+            -18,
+            exitPoint.y,
+          );
+          ownerRef.current = visit;
+          returning.partnerWalk = "return";
+          returning.place = "yard";
+          returning.placeUntil = 0;
+          returning.buildingTarget = false;
+          returning.fixtureTarget = null;
+          returning.x = visit.x + 18;
+          returning.y = visit.y + 8;
+          setPresence(returning.dog.id, { place: "yard" });
+        }
+      }
+
+      if (!isParkClosed(phaseRef.current)) {
+        for (const actor of actors) {
+          if (
+            actor.place === "away" &&
+            actor.placeUntil - now > 120_000
+          ) {
+            actor.nightRole = "home";
+          }
+          if (
+            actor.nightRole === "home" &&
+            actor.place === "away" &&
+            ownerRef.current?.dogId !== actor.dog.id &&
+            !morningQueueRef.current.includes(actor.dog.id)
+          ) {
+            morningQueueRef.current.push(actor.dog.id);
+          }
+        }
+        for (const actor of actors) {
+          if (actor.nightRole !== "overnight" || actor.place !== "indoor") continue;
+          if (looseCount() < MAX_LOOSE) {
+            emerge(actor);
+          } else {
+            actor.placeUntil = now + 4000 + Math.random() * 4000;
+          }
+          actor.nightRole = null;
+        }
+      }
+
+      if (
+        !ownerRef.current &&
+        !isParkClosed(phaseRef.current) &&
+        homeQueueRef.current.length === 0 &&
+        morningQueueRef.current.length === 0 &&
+        now >= nextOwnerAtRef.current
+      ) {
         const candidates = actors.filter(
           (actor) => actor.place === "yard" && !actor.partnerWalk,
         );
@@ -717,6 +964,7 @@ export function YardCanvas({
           const awayMs = owner.awayMs || 30_000;
           walker.place = "away";
           walker.placeUntil = now + awayMs;
+          if (owner.rush) walker.nightRole = "home";
           walker.partnerWalk = null;
           walker.buildingTarget = false;
           walker.fixtureTarget = null;
@@ -767,13 +1015,26 @@ export function YardCanvas({
             owner.phase = "depart";
             return;
           }
-          owner.awayMs = 25_000 + Math.random() * 20_000;
+          if (!owner.rush) owner.awayMs = 25_000 + Math.random() * 20_000;
           if (dog.place === "indoor") {
             owner.phase = "collecting";
             return;
           }
           beginExit(dog, false);
         };
+        if (
+          isParkClosed(phaseRef.current) &&
+          !owner.rush &&
+          owner.phase !== "leavingTogether" &&
+          owner.phase !== "returningTogether" &&
+          owner.phase !== "collecting" &&
+          owner.phase !== "depart"
+        ) {
+          owner.rush = true;
+          talkingRef.current = false;
+          setDialogue(null);
+          takeDog();
+        }
         if (owner.phase === "dropoff") {
           if (now >= owner.until) ownerRef.current = null;
         } else if (owner.phase === "talking" || talkingRef.current) {
@@ -783,38 +1044,48 @@ export function YardCanvas({
         } else if (owner.phase === "collecting") {
           if (!dog || dog.place === "away") owner.phase = "depart";
           else if (dog.place === "yard") beginExit(dog, false);
-          else if (moveOwner(door, 78, 22)) beginExit(dog, true);
+          else if (moveOwner(door, owner.rush ? 140 : 78, 22)) beginExit(dog, true);
         } else if (owner.phase === "leavingTogether" && dog) {
           const gap = followBeside(dog);
-          if (gap < 40) moveOwner(exitPoint, 72, 6);
+          if (gap < 40) moveOwner(exitPoint, owner.rush ? 130 : 72, 6);
           if (owner.x < -36 && dog.x < -SPRITE_W) finishPickup(dog);
         } else if (owner.phase === "returningTogether" && dog) {
           followBeside(dog);
-          const arrived = moveOwner(releasePoint, 72, 18);
+          const arrived = moveOwner(releasePoint, owner.rush ? 130 : 72, 18);
           if (arrived) finishReturn(dog);
         } else if (owner.phase === "depart" || !dog || dog.place === "away") {
-          const left = moveOwner(exitPoint, 78, 8);
+          const left = moveOwner(exitPoint, owner.rush ? 140 : 78, 8);
           if (left || owner.x < -40) ownerRef.current = null;
         } else if (owner.phase === "approach" && dog) {
           const goal =
             dog.place === "indoor"
               ? door
               : { x: dog.x + SPRITE_W / 2, y: dog.y + 8 };
-          const arrived = moveOwner(goal, 78, 28);
+          const arrived = moveOwner(goal, owner.rush ? 140 : 78, 28);
           if (arrived) {
-            owner.phase = "greeting";
-            owner.until = now + 8000;
-            bubblesRef.current = [
-              ...bubblesRef.current.filter((bubble) => bubble.until > now),
-              {
-                id: `owner-${dog.dog.id}-${now}`,
-                dogId: dog.dog.id,
-                text: `${owner.ownerName} is here!\nTap them to talk`,
-                until: now + 4000,
-              },
-            ].slice(-8);
+            if (owner.rush) {
+              takeDog();
+            } else {
+              owner.phase = "greeting";
+              owner.until = now + 8000;
+            }
           }
         }
+      }
+
+      const visitingOffer = ownerRef.current;
+      const showOwnerTalkOffer =
+        visitingOffer &&
+        !visitingOffer.rush &&
+        !talkingRef.current &&
+        (visitingOffer.phase === "approach" ||
+          visitingOffer.phase === "greeting");
+      if (showOwnerTalkOffer && !ownerTalkOfferActiveRef.current) {
+        ownerTalkOfferActiveRef.current = true;
+        setOwnerTalkOffer({ ownerName: visitingOffer.ownerName });
+      } else if (!showOwnerTalkOffer && ownerTalkOfferActiveRef.current) {
+        ownerTalkOfferActiveRef.current = false;
+        setOwnerTalkOffer(null);
       }
 
       if (!reduced) {
@@ -822,7 +1093,7 @@ export function YardCanvas({
           (actor) =>
             actor.place === "yard" && !actor.partnerWalk && !actor.buildingTarget,
         );
-        if (looseNow.length > MAX_LOOSE) {
+        if (looseNow.length > MAX_LOOSE && !isParkClosed(phaseRef.current)) {
           const calm = looseNow
             .filter(
               (actor) =>
@@ -948,6 +1219,7 @@ export function YardCanvas({
           if (
             now >= actor.nextEnterAt &&
             looseCount() > MAX_LOOSE &&
+            !isParkClosed(phaseRef.current) &&
             !actor.fixtureTarget &&
             actor.interactUntil <= now &&
             ownerRef.current?.dogId !== actor.dog.id &&
@@ -1114,7 +1386,17 @@ export function YardCanvas({
       const doorOpen =
         actors.some((actor) => actor.buildingTarget || actor.place === "indoor") ||
         ownerRef.current !== null;
-      drawDaycareBuilding(ctx, building.x, building.y, building.w, building.h, doorOpen);
+      const tint = nightTint(minutesRef.current);
+      const lightsOn = tint.alpha > 0;
+      drawDaycareBuilding(
+        ctx,
+        building.x,
+        building.y,
+        building.w,
+        building.h,
+        doorOpen,
+        lightsOn,
+      );
       const resting = actors.filter((actor) => actor.place === "indoor");
       if (resting.length > 0) {
         const cols = Math.max(1, Math.floor((building.w - 12) / 30));
@@ -1272,6 +1554,9 @@ export function YardCanvas({
         }
       }
 
+      drawNightOverlay(ctx, w, h, tint);
+      if (lightsOn) drawWindowLights(ctx, building.x, building.y, building.w);
+
       const visible = actors.filter((actor) => actor.place === "yard").length;
       if (now - countAtRef.current > 500) {
         countAtRef.current = now;
@@ -1306,6 +1591,7 @@ export function YardCanvas({
     const visiting = ownerRef.current;
     if (
       visiting &&
+      !visiting.rush &&
       (visiting.phase === "approach" ||
         visiting.phase === "greeting" ||
         visiting.phase === "talking") &&
@@ -1316,16 +1602,7 @@ export function YardCanvas({
     ) {
       const dog = actorsRef.current.find((actor) => actor.dog.id === visiting.dogId);
       if (dog) {
-        getAudio().unlock();
-        getAudio().play("click");
-        visiting.phase = "talking";
-        talkingRef.current = true;
-        setDialogue({
-          name: visiting.ownerName,
-          lines: ownerDialogue(visiting.ownerName, dog.dog),
-          index: 0,
-        });
-        setLiveText(`${visiting.ownerName} says hello`);
+        beginOwnerTalk();
         return;
       }
     }
@@ -1433,6 +1710,23 @@ export function YardCanvas({
         }}
         tabIndex={0}
       />
+      {ownerTalkOffer && !dialogue && (
+        <button
+          type="button"
+          className="pointer-events-auto absolute inset-x-3 top-2 z-25 border-4 border-[var(--ink)] bg-[var(--card)] px-3 py-2 text-center shadow-[inset_0_0_0_3px_var(--yard-green),3px_3px_0_var(--ink)]"
+          onClick={(event) => {
+            event.stopPropagation();
+            beginOwnerTalk();
+          }}
+        >
+          <span className="font-pixel block text-[0.5rem] leading-relaxed text-[var(--ink)]">
+            {ownerTalkOffer.ownerName} is here
+          </span>
+          <span className="mt-0.5 block text-xs text-[var(--ink)]/75">
+            Tap to talk
+          </span>
+        </button>
+      )}
       {liveText && (
         <span className="sr-only" role="status">
           {liveText}

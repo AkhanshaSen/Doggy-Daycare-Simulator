@@ -1,5 +1,11 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Play online
+
+The yard is published at [https://akhanshasen.github.io/Doggy-Daycare-Simulator/](https://akhanshasen.github.io/Doggy-Daycare-Simulator/).
+
+GitHub Pages must use **Settings → Pages → Build and deployment → Source: GitHub Actions**. Pushes to `main` run `.github/workflows/deploy-pages.yml`, which builds a static export into `out/` and deploys it.
+
 ## Getting Started
 
 First, run the development server:
